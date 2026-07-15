@@ -229,10 +229,7 @@ class ConversationManager(ABC):
         """
 
     @abstractmethod
-    def build_context(
-        self,
-        latest_user_message: str,
-    ) -> SessionContext:
+    def build_context(self) -> SessionContext:
         """
         Build the conversation context that will be sent to the LLM.
         """
@@ -243,6 +240,31 @@ class ConversationManager(ABC):
         Clear the current conversation.
         """
 
+# ============================================================================
+# Response Management
+# ============================================================================
+
+
+class ResponseManager(ABC):
+    """
+    Converts streamed LLM tokens into natural text chunks suitable
+    for streaming Text-to-Speech synthesis.
+    """
+
+    @abstractmethod
+    async def process(
+        self,
+        token_stream: AsyncIterator[LLMToken],
+    ) -> AsyncIterator[str]:
+        """
+        Convert streamed LLM tokens into speakable text chunks.
+        """
+
+    @abstractmethod
+    def reset(self) -> None:
+        """
+        Clear any buffered response state.
+        """
 
 # ============================================================================
 # Large Language Model
@@ -275,7 +297,6 @@ class LLMEngine(ABC):
     async def generate_stream(
         self,
         context: SessionContext,
-        user_text: str,
     ) -> AsyncIterator[LLMToken]:
         """
         Stream generated tokens.
@@ -309,13 +330,14 @@ class TextToSpeech(ABC):
         Return True if the engine is available.
         """
 
+    @abstractmethod
     async def synthesize_stream(
         self,
         text_stream: AsyncIterator[str],
     ) -> AsyncIterator[bytes]:
-    """
+        """
         Convert streamed text into streamed PCM audio.
-    """
+        """
 
 
 # ============================================================================
@@ -348,6 +370,7 @@ class AudioPlayback(ABC):
         Stop playback immediately.
         """
 
+    @property
     @abstractmethod
     def is_playing(self) -> bool:
         """
@@ -370,4 +393,7 @@ class FallbackProvider(ABC):
     def next_clip(self) -> Path:
         """
         Return the path to the next fallback audio clip.
+        
+        The playback module is responsible for reading and streaming
+        the audio file.
         """
