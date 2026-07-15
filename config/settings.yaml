@@ -1,0 +1,86 @@
+app:
+  name: Voice Assistant
+  version: "1.0"
+  environment: development
+
+storage:
+  logs_dir: ./logs
+  assets_dir: ./assets
+  fallback_clips_dir: ./assets/fallback_clips
+  session_db: ./data/sessions.sqlite3
+
+audio:
+  sample_rate: 16000
+  channels: 1
+  frame_duration_ms: 30
+  chunk_size: 480
+  input_device: default
+
+  vad:
+    engine: silero
+    threshold: 0.5
+    min_speech_ms: 250
+    min_silence_ms: 500
+    barge_in_enabled: true
+    barge_in_grace_ms: 300
+
+stt:
+  engine: faster-whisper
+  model_name: small
+  language: en
+  device: cpu
+  compute_type: int8
+
+  decoding:
+    beam_size: 1
+
+  confidence_threshold: 0.5
+
+conversation:
+  history_turns: 6
+  max_user_message_chars: 2000
+
+llm:
+  provider: ollama
+  base_url: http://localhost:11434
+  model_name: qwen2.5:3b
+
+  stream: true
+
+  temperature: 0.3
+  max_tokens: 150
+
+  request_timeout_ms: 4000
+  retry_on_failure: 1
+
+  system_prompt_path: ./config/prompts.yaml
+
+tts:
+  engine: piper
+  voice: en_US-lessac-medium
+  sample_rate: 22050
+  output_device: default
+  streaming_chunk_ms: 200
+
+playback:
+  interruptible: true
+  fade_out_ms: 80
+
+watchdog:
+  timeout_ms: 900
+  fallback_clips_source: ./config/prompts.yaml
+  rotation_strategy: random
+  max_fallback_loops: 2
+
+error_recovery:
+  recovery_phrases_source: ./config/prompts.yaml
+  return_to_state: LISTENING
+
+logging:
+  level: INFO
+  console: true
+  log_file: ./logs/app.log
+
+metrics:
+  enabled: true
+  latency_log_file: ./logs/latency.jsonl
