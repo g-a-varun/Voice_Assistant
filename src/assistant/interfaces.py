@@ -28,9 +28,9 @@ from typing import AsyncIterator
 class Role(str, Enum):
     """Conversation participant."""
 
+    SYSTEM = "system"
     USER = "user"
     ASSISTANT = "assistant"
-    SYSTEM = "system"
 
 
 class VADState(Enum):
@@ -61,7 +61,7 @@ class AudioFrame:
 @dataclass(slots=True, frozen=True)
 class Transcript:
     """
-    Result produced by the Speech-to-Text engine.
+    Speech recognition result.
     """
 
     text: str
@@ -73,7 +73,7 @@ class Transcript:
 @dataclass(slots=True, frozen=True)
 class LLMToken:
     """
-    Single streamed token from the language model.
+    One streamed token from the language model.
     """
 
     text: str
@@ -85,7 +85,7 @@ class LLMToken:
 @dataclass(slots=True, frozen=True)
 class ConversationTurn:
     """
-    One conversation message.
+    One message within a conversation.
     """
 
     role: Role
@@ -98,11 +98,16 @@ class SessionContext:
     """
     Context supplied to the language model.
 
-    Mutable because conversation history grows throughout the session.
+    Mutable because conversation history grows during
+    a user session.
     """
 
-    conversation_history: list[ConversationTurn] = field(default_factory=list)
+    conversation_history: list[ConversationTurn] = field(
+        default_factory=list
+    )
+
     system_prompt: str = ""
+
     max_history_turns: int = 6
 
 
@@ -132,9 +137,9 @@ class AudioInput(ABC):
     @abstractmethod
     def frames(self) -> AsyncIterator[AudioFrame]:
         """
-        Yield audio frames continuously.
+        Return an asynchronous stream of audio frames.
 
-        The implementation controls buffering internally.
+        Implementations control buffering internally.
         """
 
 
@@ -145,7 +150,7 @@ class AudioInput(ABC):
 
 class VoiceActivityDetector(ABC):
     """
-    Detects speech boundaries.
+    Detects speech boundaries from incoming audio.
     """
 
     @property
@@ -161,10 +166,11 @@ class VoiceActivityDetector(ABC):
         """
         Process one audio frame.
 
-        Returns:
-            VADState.NONE
-            VADState.SPEECH_STARTED
-            VADState.SPEECH_ENDED
+        Returns one of:
+
+        - VADState.NONE
+        - VADState.SPEECH_STARTED
+        - VADState.SPEECH_ENDED
         """
 
 
@@ -175,7 +181,7 @@ class VoiceActivityDetector(ABC):
 
 class SpeechToText(ABC):
     """
-    Streaming speech recognizer.
+    Streaming Speech-to-Text engine.
     """
 
     @property
@@ -186,26 +192,27 @@ class SpeechToText(ABC):
     @abstractmethod
     async def warmup(self) -> None:
         """
-        Load the recognition model and perform any required warm-up.
+        Load models and prepare for inference.
         """
 
     @abstractmethod
     async def health_check(self) -> bool:
         """
-        Return True if the recognizer is ready.
+        Return True when the recognizer is ready.
         """
 
     @abstractmethod
-    async def transcribe_stream(
+    def transcribe_stream(
         self,
         frames: AsyncIterator[AudioFrame],
     ) -> AsyncIterator[Transcript]:
         """
-        Stream transcripts from incoming audio frames.
+        Convert streamed audio into streamed transcripts.
 
-        Implementations may yield partial transcripts followed
-        by one final transcript.
+        Implementations may yield partial transcripts
+        followed by a final transcript.
         """
+
 
 # ============================================================================
 # Conversation Management
@@ -214,8 +221,8 @@ class SpeechToText(ABC):
 
 class ConversationManager(ABC):
     """
-    Maintains conversation history and builds the context supplied
-    to the language model.
+    Maintains conversation history and builds the
+    context supplied to the language model.
     """
 
     @abstractmethod
@@ -231,7 +238,8 @@ class ConversationManager(ABC):
     @abstractmethod
     def build_context(self) -> SessionContext:
         """
-        Build the conversation context that will be sent to the LLM.
+        Build the context that will be supplied to
+        the language model.
         """
 
     @abstractmethod
@@ -240,6 +248,7 @@ class ConversationManager(ABC):
         Clear the current conversation.
         """
 
+
 # ============================================================================
 # Response Management
 # ============================================================================
@@ -247,17 +256,18 @@ class ConversationManager(ABC):
 
 class ResponseManager(ABC):
     """
-    Converts streamed LLM tokens into natural text chunks suitable
-    for streaming Text-to-Speech synthesis.
+    Converts streamed LLM tokens into natural text
+    chunks suitable for streaming TTS.
     """
 
     @abstractmethod
-    async def process(
+    def process(
         self,
         token_stream: AsyncIterator[LLMToken],
     ) -> AsyncIterator[str]:
         """
-        Convert streamed LLM tokens into speakable text chunks.
+        Convert streamed LLM output into speakable
+        text chunks.
         """
 
     @abstractmethod
@@ -284,7 +294,7 @@ class LLMEngine(ABC):
     @abstractmethod
     async def warmup(self) -> None:
         """
-        Load the model and perform any warm-up work.
+        Load the model and prepare it for inference.
         """
 
     @abstractmethod
@@ -294,12 +304,15 @@ class LLMEngine(ABC):
         """
 
     @abstractmethod
-    async def generate_stream(
+    def generate_stream(
         self,
         context: SessionContext,
     ) -> AsyncIterator[LLMToken]:
         """
-        Stream generated tokens.
+        Generate a streamed response.
+
+        The latest user message is expected to already be
+        present inside the supplied SessionContext.
         """
 
 
@@ -321,7 +334,7 @@ class TextToSpeech(ABC):
     @abstractmethod
     async def warmup(self) -> None:
         """
-        Warm up the synthesis engine.
+        Load voices and prepare the synthesis engine.
         """
 
     @abstractmethod
@@ -331,14 +344,16 @@ class TextToSpeech(ABC):
         """
 
     @abstractmethod
-    async def synthesize_stream(
+    def synthesize_stream(
         self,
         text_stream: AsyncIterator[str],
     ) -> AsyncIterator[bytes]:
         """
         Convert streamed text into streamed PCM audio.
-        """
 
+        The returned bytes should represent raw PCM chunks
+        ready for playback.
+        """
 
 # ============================================================================
 # Audio Playback
@@ -362,19 +377,26 @@ class AudioPlayback(ABC):
     ) -> None:
         """
         Play streamed PCM audio.
+
+        Implementations should begin playback as soon as
+        the first chunk becomes available rather than waiting
+        for the complete stream.
         """
 
     @abstractmethod
     async def interrupt(self) -> None:
         """
         Stop playback immediately.
+
+        Used to support barge-in when the user begins speaking
+        while the assistant is still responding.
         """
 
     @property
     @abstractmethod
     def is_playing(self) -> bool:
         """
-        Return True while playback is active.
+        Return True while audio is actively playing.
         """
 
 
@@ -392,8 +414,43 @@ class FallbackProvider(ABC):
     @abstractmethod
     def next_clip(self) -> Path:
         """
-        Return the path to the next fallback audio clip.
-        
-        The playback module is responsible for reading and streaming
-        the audio file.
+        Return the path of the next fallback audio clip.
+
+        The playback component is responsible for opening,
+        decoding, and streaming the returned file.
         """
+
+    @abstractmethod
+    def reset(self) -> None:
+        """
+        Reset the fallback rotation strategy.
+
+        Called whenever a request completes successfully so
+        the next interaction starts from a clean state.
+        """
+
+# ============================================================================
+# End of Module
+# ============================================================================
+
+"""
+Design Notes
+============
+
+This module defines the contracts used throughout the Voice Assistant.
+
+Guidelines
+----------
+1. Concrete implementations must inherit only from the interfaces
+   defined here.
+
+2. The orchestrator should depend on these interfaces rather than
+   implementation classes.
+
+3. Implementations are free to use any backend (Faster-Whisper,
+   Whisper.cpp, Ollama, Piper, ElevenLabs, etc.) provided they satisfy
+   these contracts.
+
+4. Any new interface added here should first be reflected in the
+   architecture documentation before implementation.
+"""
